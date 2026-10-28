@@ -633,8 +633,8 @@ def get_jobs_for_enrichment_batch(limit, model=None):
                             AND j.description IS NOT NULL
                             AND BTRIM(j.description) <> ''
               AND NOT (
-                  ai.status = 'completed'
-                  AND ai.model = %s
+                  ai.status IS NOT DISTINCT FROM 'completed'
+                  AND ai.model IS NOT DISTINCT FROM %s
               )
                         ORDER BY j.id
             LIMIT %s
@@ -657,8 +657,8 @@ def get_jobs_for_enrichment_batch(limit, model=None):
             conn.close()
 
 
-def get_jobs_for_embedding_batch(limit):
-    """Return active jobs with non-empty descriptions and embedding state."""
+def get_jobs_for_embedding_batch(limit, model=None):
+    """Return active jobs missing embeddings for the requested model."""
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
         raise ValueError("limit must be a positive integer")
 
@@ -674,14 +674,16 @@ def get_jobs_for_embedding_batch(limit):
                    j.source_job_id, j.description, j.employment_type, j.salary,
                    e.job_id
             FROM jobs j
-            LEFT JOIN job_embeddings e ON e.job_id = j.id
+            LEFT JOIN job_embeddings e
+              ON e.job_id = j.id AND e.embedding_model = %s
             WHERE j.is_active = TRUE
               AND j.description IS NOT NULL
               AND BTRIM(j.description) <> ''
+              AND e.job_id IS NULL
             ORDER BY j.id
             LIMIT %s
             """,
-            (limit,),
+            (model or config.AI_EMBEDDING_MODEL, limit),
         )
         records = []
         for row in cursor.fetchall():

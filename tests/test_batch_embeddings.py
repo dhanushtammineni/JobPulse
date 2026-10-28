@@ -15,9 +15,9 @@ class BatchEmbeddingTests(unittest.TestCase):
     def test_eligible_jobs_are_selected_with_limit(self, select, embed):
         select.return_value = [{"job": job(1), "has_embedding": False}]
 
-        stats = embed_jobs_batch(3, client=Mock())
+        stats = embed_jobs_batch(3, client=SimpleNamespace(embedding_model="custom-model"))
 
-        select.assert_called_once_with(3)
+        select.assert_called_once_with(3, model="custom-model")
         embed.assert_called_once()
         self.assertEqual(stats.selected, 1)
 
