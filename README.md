@@ -1,5 +1,25 @@
 # JobPulse
 
+## Batch-selection regression tests
+
+Run the suite with `python -m pytest -q`. PostgreSQL integration tests skip
+unless `JOBPULSE_TEST_POSTGRES_DSN` is set; an explicitly configured connection
+that fails is reported as a test failure. No Gemini credentials are needed.
+
+For example, against a disposable PostgreSQL instance:
+
+```sh
+export JOBPULSE_TEST_POSTGRES_DSN='host=127.0.0.1 port=5432 dbname=jobpulse_test user=jobpulse'
+python -m pytest -q tests/test_batch_selection_postgres.py
+```
+
+Use a test database, never production. The tests create session-local temporary
+tables and roll back on cleanup; no application schema or existing records are
+modified. Plain PostgreSQL is sufficient for these selection-only tests: vectors
+and AI persistence are controlled fixtures, and no pgvector distance operators
+are exercised. The environment needs pytest plus the repository dependencies
+and the existing API test dependencies (FastAPI, httpx, and python-dotenv).
+
 ## Ingestion freshness
 
 JobPulse currently uses the Python.org HTML job board at `https://www.python.org/jobs/` as its authoritative source. The parser reads the canonical listing `href` values and resolves them with `urljoin`; it does not construct job URLs from titles or IDs.
