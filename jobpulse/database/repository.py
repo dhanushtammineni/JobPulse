@@ -22,177 +22,16 @@ JOB_COLUMNS = """
 """
 
 
-def _create_ai_schema(cursor):
-    cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS job_ai_enrichment (
-            job_id BIGINT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
-            skills JSONB NOT NULL DEFAULT '[]'::jsonb,
-            category VARCHAR(255),
-            seniority VARCHAR(100),
-            experience_years INTEGER,
-            employment_type VARCHAR(100),
-            responsibilities JSONB NOT NULL DEFAULT '[]'::jsonb,
-            requirements JSONB NOT NULL DEFAULT '[]'::jsonb,
-            summary TEXT,
-            model VARCHAR(255),
-            status VARCHAR(50) NOT NULL DEFAULT 'pending',
-            enriched_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    cursor.execute(
-        "ALTER TABLE job_ai_enrichment ADD COLUMN IF NOT EXISTS experience_years INTEGER"
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS job_embeddings (
-            job_id BIGINT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
-            embedding vector NOT NULL,
-            embedding_model VARCHAR(255) NOT NULL,
-            dimensions INTEGER NOT NULL CHECK (dimensions > 0),
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS resume_profiles (
-            id UUID PRIMARY KEY,
-            name TEXT,
-            summary TEXT,
-            skills JSONB NOT NULL,
-            technologies JSONB NOT NULL,
-            experience JSONB NOT NULL,
-            education JSONB NOT NULL,
-            projects JSONB NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS resume_embeddings (
-            resume_id UUID PRIMARY KEY REFERENCES resume_profiles(id) ON DELETE CASCADE,
-            embedding vector NOT NULL,
-            embedding_model TEXT NOT NULL,
-            dimensions INTEGER NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_ai_enrichment_status_idx
-        ON job_ai_enrichment (status)
-        """
-    )
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_ai_enrichment_model_idx
-        ON job_ai_enrichment (model)
-        """
-    )
-    cursor.execute(
-        """
-        CREATE INDEX IF NOT EXISTS job_embeddings_model_idx
-        ON job_embeddings (embedding_model)
-        """
-    )
-
-
 def ensure_ai_schema():
-    conn = None
-    cursor = None
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
-        _create_ai_schema(cursor)
-        conn.commit()
-    except psycopg2.Error:
-        if conn:
-            conn.rollback()
-        logger.exception("failed to initialize AI schema")
-        raise
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+    """Compatibility hook: verify migrations; never change schema at runtime."""
+    from .migrate import assert_current
+    assert_current()
 
 
 def ensure_job_freshness_schema():
-    conn = None
-    cursor = None
-    try:
-        conn = connect_db()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'jobs'
-            """
-        )
-        existing = {row[0] for row in cursor.fetchall()}
-        additions = {
-            "source": "VARCHAR(100)",
-            "first_seen_at": "TIMESTAMP",
-            "last_seen_at": "TIMESTAMP",
-            "is_active": "BOOLEAN",
-            "source_job_id": "VARCHAR(255)",
-            "description": "TEXT",
-            "employment_type": "VARCHAR(100)",
-            "salary": "VARCHAR(255)",
-        }
-        added = set()
-        for column, definition in additions.items():
-            if column not in existing:
-                cursor.execute(f"ALTER TABLE jobs ADD COLUMN {column} {definition}")
-                added.add(column)
-
-        if "source" in added:
-            cursor.execute("UPDATE jobs SET source = 'python.org' WHERE source IS NULL")
-        if "first_seen_at" in added:
-            cursor.execute(
-                "UPDATE jobs SET first_seen_at = COALESCE(created_timestamp, CURRENT_TIMESTAMP)"
-            )
-        if "last_seen_at" in added:
-            cursor.execute(
-                "UPDATE jobs SET last_seen_at = COALESCE(created_timestamp, CURRENT_TIMESTAMP)"
-            )
-        if "is_active" in added:
-            cursor.execute("UPDATE jobs SET is_active = TRUE WHERE is_active IS NULL")
-
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN source SET DEFAULT 'python.org'")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN source SET NOT NULL")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN first_seen_at SET DEFAULT CURRENT_TIMESTAMP")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN first_seen_at SET NOT NULL")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN last_seen_at SET DEFAULT CURRENT_TIMESTAMP")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN last_seen_at SET NOT NULL")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN is_active SET DEFAULT TRUE")
-        cursor.execute("ALTER TABLE jobs ALTER COLUMN is_active SET NOT NULL")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS jobs_active_source_idx ON jobs (source, is_active)"
-        )
-        _create_ai_schema(cursor)
-        conn.commit()
-    except psycopg2.Error:
-        if conn:
-            conn.rollback()
-        logger.exception("failed to initialize jobs freshness schema")
-        raise
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+    """Compatibility hook for older scripts. Run the migration CLI first."""
+    from .migrate import assert_current
+    assert_current()
 
 
 def insert_jobs(jobs, source="python.org", complete_run=False, stale_after_days=7):
@@ -200,7 +39,6 @@ def insert_jobs(jobs, source="python.org", complete_run=False, stale_after_days=
         logger.warning("skipping empty ingestion run")
         return {"inserted": 0, "updated": 0, "stale": 0}
 
-    ensure_job_freshness_schema()
     conn = None
     cursor = None
     try:
@@ -304,7 +142,6 @@ def save_job_ai_enrichment(
     enriched_at=None,
 ):
     values = _enrichment_values(enrichment)
-    ensure_ai_schema()
     conn = None
     cursor = None
     try:
@@ -362,7 +199,6 @@ def save_job_ai_enrichment(
 
 
 def get_job_ai_enrichment(job_id):
-    ensure_ai_schema()
     conn = None
     cursor = None
     try:
@@ -495,7 +331,6 @@ def get_resume_profile(resume_id: UUID) -> ResumeProfile | None:
 
 def get_active_enriched_job_ids():
     """Return active jobs with completed enrichment and stored embeddings."""
-    ensure_ai_schema()
     conn = None
     cursor = None
     try:
@@ -529,7 +364,6 @@ def save_resume_embedding(resume_id: UUID, embedding, embedding_model=None):
     if not all(isinstance(value, (int, float)) for value in embedding):
         raise TypeError("embedding must contain only numeric values")
 
-    ensure_ai_schema()
     vector = "[" + ",".join(str(value) for value in embedding) + "]"
     conn = None
     cursor = None
@@ -570,7 +404,6 @@ def save_resume_embedding(resume_id: UUID, embedding, embedding_model=None):
 
 
 def get_resume_embedding(resume_id: UUID):
-    ensure_ai_schema()
     conn = None
     cursor = None
     try:
@@ -705,7 +538,6 @@ def save_job_embedding(job_id, embedding, embedding_model=None):
     if not all(isinstance(value, (int, float)) for value in embedding):
         raise TypeError("embedding must contain only numeric values")
 
-    ensure_ai_schema()
     vector = "[" + ",".join(str(value) for value in embedding) + "]"
     conn = None
     cursor = None
@@ -746,7 +578,6 @@ def save_job_embedding(job_id, embedding, embedding_model=None):
 
 
 def get_job_embedding(job_id):
-    ensure_ai_schema()
     conn = None
     cursor = None
     try:
@@ -792,7 +623,6 @@ def search_jobs_by_embedding(embedding, top_k=10):
     if not all(isinstance(value, (int, float)) for value in embedding):
         raise TypeError("embedding must contain only numeric values")
 
-    ensure_ai_schema()
     vector = "[" + ",".join(str(value) for value in embedding) + "]"
     conn = None
     cursor = None

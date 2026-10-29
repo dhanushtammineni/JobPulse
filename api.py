@@ -1,17 +1,35 @@
 from uuid import UUID
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI,HTTPException,status
 from jobpulse.ai.matching import MatchError, MatchResult, match_resume_to_job
 from jobpulse.ai.search import semantic_search
 from jobpulse.database.repository import ensure_job_freshness_schema,get_job_by_id,get_jobs_by_filter
 from jobpulse.utils.logger import logger
+from jobpulse.database.migrate import MigrationError, assert_current
+from jobpulse.database.connections import psycopg2
 
-app = FastAPI()
-
-
-@app.on_event("startup")
-def initialize_database():
+@asynccontextmanager
+async def lifespan(app):
     ensure_job_freshness_schema()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/health/live")
+def liveness():
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness():
+    try:
+        assert_current()
+    except (MigrationError, psycopg2.Error, ValueError):
+        raise HTTPException(status_code=503, detail="Database is not ready") from None
+    return {"status": "ready"}
 
 
 @app.get("/jobs")
@@ -90,4 +108,3 @@ def get_job(job_id:int):
             detail="job not found"
         )
     return job.to_dict()
-        
