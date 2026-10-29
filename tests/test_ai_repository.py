@@ -44,18 +44,10 @@ class FakeConnection:
 
 
 class AIRepositoryTests(unittest.TestCase):
-    def test_ai_schema_is_idempotent(self):
-        cursor = FakeCursor()
-        connection = FakeConnection(cursor)
-        with patch.object(repository, "connect_db", return_value=connection):
+    def test_legacy_schema_hook_checks_migrations_without_runtime_ddl(self):
+        with patch("jobpulse.database.migrate.assert_current") as check:
             repository.ensure_ai_schema()
-
-        queries = "\n".join(query for query, _ in cursor.executed)
-        self.assertIn("CREATE EXTENSION IF NOT EXISTS vector", queries)
-        self.assertIn("CREATE TABLE IF NOT EXISTS job_ai_enrichment", queries)
-        self.assertIn("CREATE TABLE IF NOT EXISTS job_embeddings", queries)
-        self.assertIn("CREATE INDEX IF NOT EXISTS", queries)
-        self.assertTrue(connection.committed)
+        check.assert_called_once_with()
 
     def test_enrichment_upsert_uses_job_key_and_structured_fields(self):
         cursor = FakeCursor()
