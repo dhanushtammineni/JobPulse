@@ -44,18 +44,10 @@ class FakeConnection:
 
 
 class AIRepositoryTests(unittest.TestCase):
-    def test_ai_schema_is_idempotent(self):
-        cursor = FakeCursor()
-        connection = FakeConnection(cursor)
-        with patch.object(repository, "connect_db", return_value=connection):
+    def test_legacy_schema_hook_checks_migrations_without_runtime_ddl(self):
+        with patch("jobpulse.database.migrate.assert_current") as check:
             repository.ensure_ai_schema()
-
-        queries = "\n".join(query for query, _ in cursor.executed)
-        self.assertIn("CREATE EXTENSION IF NOT EXISTS vector", queries)
-        self.assertIn("CREATE TABLE IF NOT EXISTS job_ai_enrichment", queries)
-        self.assertIn("CREATE TABLE IF NOT EXISTS job_embeddings", queries)
-        self.assertIn("CREATE INDEX IF NOT EXISTS", queries)
-        self.assertTrue(connection.committed)
+        check.assert_called_once_with()
 
     def test_enrichment_upsert_uses_job_key_and_structured_fields(self):
         cursor = FakeCursor()
@@ -122,36 +114,14 @@ class AIRepositoryTests(unittest.TestCase):
         self.assertEqual(results[0]["job"].title, "Backend Engineer")
         self.assertEqual(results[0]["similarity"], 0.9)
 
-    def test_existing_job_upsert_refreshes_rich_fields(self):
-        url = "https://example.test/jobs/123/backend/"
-        cursor = FakeCursor([(url,)])
-        connection = FakeConnection(cursor)
-        job = Job(
-            "Backend Engineer",
-            "JobPulse",
-            "Remote",
-            date.today(),
-            url,
-            source_job_id="123",
-            description="Build and maintain APIs.",
-            employment_type="Full-time",
-            salary="$100k-$120k",
-        )
-
-        with patch.object(repository, "ensure_job_freshness_schema"), patch.object(
-            repository, "connect_db", return_value=connection
-        ):
-            stats = repository.insert_jobs([job])
-
-        query, params = cursor.executed[1]
-        self.assertEqual(stats["updated"], 1)
-        self.assertIn("ON CONFLICT (url)", query)
-        self.assertIn("description = EXCLUDED.description", query)
-        self.assertIn("employment_type = EXCLUDED.employment_type", query)
-        self.assertIn("salary = EXCLUDED.salary", query)
-        self.assertIn("source_job_id = EXCLUDED.source_job_id", query)
-        self.assertIn("last_seen_at = CURRENT_TIMESTAMP", query)
-        self.assertEqual(params[6:], ("123", "Build and maintain APIs.", "Full-time", "$100k-$120k"))
+    def test_legacy_insert_delegates_to_board_snapshot_without_deactivation(self):
+        job = Job('Engineer','Acme','Remote',date.today(),'https://example.test/1')
+        stats = dict(inserted=1,updated=0,unchanged=0,failed=0,stale=0)
+        with patch('jobpulse.database.ingestion.begin_run', return_value='run'), patch(
+            'jobpulse.database.ingestion.persist_snapshot', return_value=stats
+        ) as persist:
+            self.assertEqual(repository.insert_jobs([job]), {'inserted':1,'updated':0,'stale':0})
+        self.assertFalse(persist.call_args.kwargs['deactivate'])
 
 
 if __name__ == "__main__":

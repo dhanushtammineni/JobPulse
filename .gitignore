@@ -12,3 +12,5 @@ frontend/dist/
 logs/
 config/
 data/jobs.json
+.airflow/
+.airflow-venv/

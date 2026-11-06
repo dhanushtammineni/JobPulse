@@ -152,7 +152,7 @@ def match_resume_to_job(resume_id: UUID, job_id: int) -> MatchResult:
         raise MatchError(f"job not found: {job_id}")
 
     enrichment = get_job_ai_enrichment(job_id)
-    if enrichment is None:
+    if enrichment is None or enrichment.get("status") == "stale":
         raise MatchError(f"job enrichment not found: {job_id}")
 
     resume_embedding = get_resume_embedding(resume_id)

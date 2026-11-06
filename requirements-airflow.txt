@@ -1,0 +1,2 @@
+# Optional combined orchestration runtime; install requirements-airflow.lock for tested versions.
+apache-airflow==2.11.0

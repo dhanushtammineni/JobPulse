@@ -18,12 +18,12 @@ Skills
 Python, SQL, system design, data modeling, REST APIs, distributed systems
 
 Technologies
-PostgreSQL, FastAPI, Kafka, Docker, Airflow, PySpark, Git
+PostgreSQL, FastAPI, Redis, Docker, Airflow, PySpark, Git
 
 Experience
 Senior Software Engineer, DataWorks, 2022-2026
 - Built FastAPI services backed by PostgreSQL for customer analytics.
-- Designed Kafka event pipelines and operated Docker-based deployments.
+- Designed Redis event pipelines and operated Docker-based deployments.
 - Developed Airflow workflows and PySpark jobs processing daily event data.
 
 Software Engineer, Insight Labs, 2020-2022
@@ -31,7 +31,7 @@ Software Engineer, Insight Labs, 2020-2022
 - Improved pipeline reliability through monitoring and automated testing.
 
 Projects
-- JobPulse: Built a job intelligence platform with Python, FastAPI, Kafka,
+- JobPulse: Built a job intelligence platform with Python, FastAPI, Redis,
   PostgreSQL, embeddings, and resume analysis.
 - Data Quality Toolkit: Created PySpark checks and Airflow workflows for
   validating large batch datasets.

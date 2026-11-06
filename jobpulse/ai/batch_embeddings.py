@@ -28,7 +28,11 @@ def embed_jobs_batch(limit, client=None):
     if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
         raise ValueError("limit must be a positive integer")
 
-    records = get_jobs_for_embedding_batch(limit)
+    records = (
+        get_jobs_for_embedding_batch(limit, model=client.embedding_model)
+        if client is not None
+        else get_jobs_for_embedding_batch(limit)
+    )
     stats = BatchEmbeddingStats(selected=len(records))
 
     for record in records:
