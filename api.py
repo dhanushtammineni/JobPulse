@@ -1,7 +1,9 @@
 from uuid import UUID
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI,HTTPException,status
+from fastapi import FastAPI,HTTPException,status,Query
+from typing import Literal
+from jobpulse.database.listings import list_jobs
 from jobpulse.ai.matching import MatchError, MatchResult, match_resume_to_job
 from jobpulse.ai.search import semantic_search
 from jobpulse.database.repository import ensure_job_freshness_schema,get_job_by_id,get_jobs_by_filter
@@ -33,15 +35,19 @@ def readiness():
 
 
 @app.get("/jobs")
-def get_jobs(company: str | None = None,location:str |None=None):
-
-    jobs=get_jobs_by_filter(location,company)
-    if not jobs:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No jobs found"
-        )
-    return [job.to_dict() for job in jobs]
+def get_jobs(company: str | None = Query(None, max_length=200),
+             location: str | None = Query(None, max_length=200),
+             source: Literal['python.org','greenhouse','lever','ashby'] | None = None,
+             keyword: str | None = Query(None, max_length=200),
+             employment_type: str | None = Query(None, max_length=100),
+             workplace_type: Literal['remote','hybrid','on-site'] | None = None,
+             page: int = Query(1, ge=1, le=10000), page_size: int = Query(20, ge=1, le=100)):
+    try:
+        return list_jobs(company=company,location=location,source=source,keyword=keyword,
+                         employment_type=employment_type,workplace_type=workplace_type,
+                         page=page,page_size=page_size)
+    except psycopg2.Error:
+        raise HTTPException(status_code=503, detail="Job listings are temporarily unavailable") from None
 
 @app.get("/jobs/semantic-search")
 def search_jobs(q: str, top_k: int = 10):
