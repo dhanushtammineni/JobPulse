@@ -54,6 +54,12 @@ Saved environment-draft additions (not yet applied to the running policy): `www.
 3. Complete GitHub PR creation if API access remains blocked. The feature branch can use the existing authenticated Git proxy; GitHub REST/GraphQL requests currently return Forbidden. Do not request a new token solely because the API route is blocked.
 4. Review the two existing PR dependencies, API response contract change (`/jobs` array → paginated envelope; empty results now HTTP 200), and migrations before merge. No automatic merge is authorized or performed.
 
+## Publication result
+
+The feature branch was successfully pushed to GitHub. Creating the requested draft PR with `gh pr create --draft --base main` returned `Post https://api.github.com/graphql: Forbidden`. No PR was created and nothing was merged. The complete prepared description is saved in [pull-request.md](pull-request.md); retry after API access is restored. GitHub supplied this branch-specific creation link: https://github.com/dhanushtammineni/JobPulse/pull/new/feat/multisource-ingestion-no-kafka .
+
+The isolated Compose test stack and its own disposable database volume were removed after functional validation. The existing JobPulse development database and its volume were retained.
+
 ## File manifest
 
 Paths below compare the final feature worktree to audited main and include the retained PR #1/#2 dependency files. `A` means added, `M` modified, and `D` removed.
@@ -72,6 +78,7 @@ Paths below compare the final feature worktree to audited main and include the r
 | A | `dags/jobpulse_ingestion.py` |
 | A | `docs/audit.md` |
 | A | `docs/multisource-validation.md` |
+| A | `docs/pull-request.md` |
 | A | `docs/runtime.md` |
 | A | `frontend/.dockerignore` |
 | A | `frontend/Dockerfile` |
