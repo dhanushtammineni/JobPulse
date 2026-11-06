@@ -145,3 +145,28 @@ def test_provider_metadata_survives_missing_nested_values(database):
     assert row['content_hash']==before
     ingest(board,[job(board,source_metadata={'categories':{'team':'Infrastructure'}})])
     assert list_jobs()['items'][0]['content_hash']!=before
+
+
+def test_live_validation_harness_samples_only_disposable_database(database,monkeypatch,tmp_path):
+    import config
+    from scripts import validate_public_sources as validator
+    upgrade(database)
+    original_name=config.DB_NAME
+    ingest(Board('lever','keep'),[job(Board('lever','keep'))])
+    def adapter(source):
+        result=Mock()
+        def fetch(board): return [job(board,str(i)) for i in range(25)]
+        result.fetch.side_effect=fetch
+        return result
+    monkeypatch.setattr(validator,'adapter_for',adapter)
+    output=tmp_path/'validation.json'
+    monkeypatch.setattr('sys.argv',['validate_public_sources.py','--limit','20','--output',str(output)])
+    assert validator.main()==0
+    import json
+    results=json.loads(output.read_text())['sources']
+    assert len(results)==4
+    assert all(r['fetched']==25 and r['sampled']==20 and r['inserted']==20
+               and r['unchanged']==20 and r['updated']==1 and r['skipped']==5 and r['failed']==0 for r in results)
+    assert config.DB_NAME==original_name
+    assert scalar(database,'SELECT count(*) FROM jobs')==1
+    assert scalar(database,"SELECT count(*) FROM pg_database WHERE datname LIKE %s",('jobpulse_validation_%',))==0

@@ -20,19 +20,14 @@ volume persists data across `docker compose down`; never use `down -v` against
 valuable data. If another local database occupies port 5432, set `DB_PORT=5433`.
 `API_PORT` changes the host API port; Vite's existing proxy expects port 8000.
 
-The application starts with an empty database: `/jobs` returns the existing 404
-`No jobs found` response. No demo jobs or metrics are silently inserted. With
+The application starts with an empty database: `/jobs` returns HTTP 200 with an empty `items` array and total zero. No demo jobs or metrics are silently inserted. With
 Python.org access enabled, populate real jobs explicitly:
 
 ```sh
 docker compose run --rm api python main.py
 ```
 
-Gemini is optional. The default Compose stack does not forward its key. Supply it
-through your deployment's secret configuration only when running AI workflows.
-Kafka and Airflow are not started by this PR's stack; their reliability work is
-scheduled separately. This local foundation is not yet an authenticated public
-production deployment.
+Gemini is optional. Compose forwards GEMINI_API_KEY only when supplied by the operator. Keep it in secure environment/secret configuration. Airflow uses a separate optional runtime described in the root README. This local foundation is not an authenticated public production deployment.
 
 ## Native Python and frontend
 
@@ -63,7 +58,7 @@ npm run dev
 ```
 
 Vite proxies `/api` to the API on port 8000. `npm run build` checks the frontend
-production bundle; frontend hosting and public deployment are later PRs.
+production bundle. Compose also serves that bundle through Nginx on FRONTEND_PORT (default 3000). Public authentication/deployment are outside this change.
 
 ## Migration contract
 
@@ -84,7 +79,7 @@ endings are enforced in Git so checksums match across operating systems.
 
 001 establishes the base jobs table and URL uniqueness. 002 adds and backfills
 freshness and rich listing fields. 003 adopts the existing AI and resume tables
-and enables pgvector. Existing rows, IDs, first-seen values and AI artifacts are
+and enables pgvector. 004 adds multi-source identity/status and nullable source fields, 005 indexes duplicate candidate lookups, and 006 retains provider metadata. Existing rows, IDs, first-seen values and AI artifacts are
 preserved. Partial nullable freshness columns are backfilled only where null.
 Legacy schemas must have the original base columns and compatible AI column
 types. Unexpected schemas require inspection rather than destructive repair.
@@ -94,8 +89,7 @@ reviewed data migration rather than deleting records automatically.
 API startup checks the migration history and required tables; it never migrates.
 Legacy `ensure_ai_schema` and `ensure_job_freshness_schema` imports remain as
 read-only checks for older scripts. Repository reads/writes contain no runtime
-DDL. Run migrations explicitly before ingestion, batch commands, Kafka consumers
-or Airflow tasks. A missing migration yields a startup failure with a CLI hint.
+DDL. Run migrations explicitly before ingestion, batch commands, or Airflow tasks. A missing migration yields a startup failure with a CLI hint.
 `/health/live` checks the process; `/health/ready` checks DB access and schema and
 returns 503 on failure without exposing connection details.
 
@@ -145,6 +139,7 @@ The Dockerfile supports an optional CA build secret for managed proxies:
 
 ```sh
 docker build --secret id=pip_ca,src=/etc/ssl/certs/ca-certificates.crt -t jobpulse:local .
+docker build --secret id=npm_ca,src=/etc/ssl/certs/ca-certificates.crt -t jobpulse-frontend:local frontend
 docker compose up -d --no-build
 ```
 
