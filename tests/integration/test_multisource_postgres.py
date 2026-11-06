@@ -116,3 +116,32 @@ def test_backfill_duplicate_validation_and_run_order(database):
     with pytest.raises(ValueError,match='newer'):
         persist_snapshot(board,[],older)
     assert scalar(database,'SELECT is_active FROM jobs') is True
+
+
+def test_obsolete_ai_results_cannot_clear_staleness(database):
+    upgrade(database)
+    board=Board('ashby','acme')
+    ingest(board,[job(board)])
+    record=repository.get_jobs_for_embedding_batch(1)[0]['job']
+    revision=record.semantic_revision
+    repository.save_job_embedding(record.id,[.1,.2],expected_revision=revision)
+    ingest(board,[job(board,description='New responsibilities')])
+    with pytest.raises(ValueError,match='changed'):
+        repository.save_job_embedding(record.id,[.5,.6],expected_revision=revision)
+    with pytest.raises(ValueError,match='changed'):
+        repository.save_job_ai_enrichment(record.id,{'skills':['Obsolete']},expected_revision=revision)
+    assert repository.get_job_embedding(record.id) is None
+
+
+def test_provider_metadata_survives_missing_nested_values(database):
+    upgrade(database)
+    board=Board('lever','acme')
+    ingest(board,[job(board,source_metadata={'categories':{'team':'Platform','department':'Engineering'}})])
+    before=list_jobs()['items'][0]['content_hash']
+    result=ingest(board,[job(board,source_metadata={'categories':{'team':None}})])
+    assert result['unchanged']==1
+    row=list_jobs()['items'][0]
+    assert row['source_metadata']['categories']['team']=='Platform'
+    assert row['content_hash']==before
+    ingest(board,[job(board,source_metadata={'categories':{'team':'Infrastructure'}})])
+    assert list_jobs()['items'][0]['content_hash']!=before

@@ -26,7 +26,7 @@ def database(monkeypatch):
                     posted_date DATE DEFAULT CURRENT_DATE, url TEXT,
                     source TEXT, first_seen_at TIMESTAMP, last_seen_at TIMESTAMP,
                     is_active BOOLEAN DEFAULT TRUE, source_job_id TEXT,
-                    description TEXT, employment_type TEXT, salary TEXT
+                    description TEXT, employment_type TEXT, salary TEXT, semantic_revision BIGINT DEFAULT 0
                 );
                 CREATE TEMP TABLE job_ai_enrichment (
                     job_id BIGINT PRIMARY KEY, status TEXT, model TEXT

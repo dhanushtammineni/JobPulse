@@ -52,6 +52,8 @@ def main():
     from jobpulse.database.migrate import assert_current
     assert_current()
     results = run_sources(source=args.source, deactivate=not args.backfill)
+    if not results:
+        parser.error("No matching enabled boards; configure JOBPULSE_SOURCES and board arrays")
     print(json.dumps(results, default=str))
     return int(any(result['status'] == 'failed' for result in results))
 

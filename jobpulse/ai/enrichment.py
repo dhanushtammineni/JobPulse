@@ -236,11 +236,13 @@ def generate_and_save_job_enrichment(job, client: AIClient | None = None):
             "Job enrichment API returned an invalid response"
         ) from error
 
+    revision = _job_value(job, "semantic_revision")
     save_job_ai_enrichment(
         job_id,
         result,
         model=ai_client.model,
         status="completed",
         enriched_at=datetime.utcnow(),
+        **({"expected_revision": revision} if revision is not None else {}),
     )
     return result

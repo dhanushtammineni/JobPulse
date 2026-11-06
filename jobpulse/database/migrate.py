@@ -73,7 +73,7 @@ def assert_current(connection=None, directory=MIGRATIONS):
                     raise MigrationError('Database migrations are pending; run python -m jobpulse.database.migrate upgrade')
                 cursor.execute('''SELECT j.id, j.source, j.first_seen_at, j.last_seen_at,
                     j.is_active, j.source_job_id, j.description, j.employment_type, j.salary,
-                    j.source_board, j.apply_url, j.content_hash, e.is_stale,
+                    j.source_board, j.apply_url, j.content_hash, j.source_metadata, e.is_stale,
                     a.experience_years, e.embedding, r.id, re.embedding
                     FROM jobs j
                     LEFT JOIN job_ai_enrichment a ON a.job_id = j.id

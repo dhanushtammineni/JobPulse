@@ -72,6 +72,7 @@ def save_job_ai_enrichment(
     model=None,
     status="completed",
     enriched_at=None,
+    expected_revision=None,
 ):
     values = _enrichment_values(enrichment)
     conn = None
@@ -79,6 +80,11 @@ def save_job_ai_enrichment(
     try:
         conn = connect_db()
         cursor = conn.cursor()
+        if expected_revision is not None:
+            cursor.execute('SELECT semantic_revision FROM jobs WHERE id=%s FOR UPDATE', (job_id,))
+            row = cursor.fetchone()
+            if not row or row[0] != expected_revision:
+                raise ValueError('Job changed during enrichment; discard obsolete result')
         cursor.execute(
             """
             INSERT INTO job_ai_enrichment (
@@ -391,7 +397,7 @@ def get_jobs_for_enrichment_batch(limit, model=None):
                         SELECT j.id, j.title, j.company, j.location, j.posted_date, j.url,
                                      j.source, j.first_seen_at, j.last_seen_at, j.is_active,
                                      j.source_job_id, j.description, j.employment_type, j.salary,
-                                     ai.status, ai.model
+                                     ai.status, ai.model, j.semantic_revision
                         FROM jobs j
                         LEFT JOIN job_ai_enrichment ai ON ai.job_id = j.id
                         WHERE j.is_active = TRUE
@@ -410,6 +416,7 @@ def get_jobs_for_enrichment_batch(limit, model=None):
         for row in cursor.fetchall():
             job = Job.from_row(row[1:14])
             job.id = row[0]
+            job.semantic_revision = row[16] if len(row) > 16 else None
             records.append({"job": job, "status": row[14], "model": row[15]})
         return records
     except psycopg2.Error:
@@ -437,7 +444,7 @@ def get_jobs_for_embedding_batch(limit, model=None):
             SELECT j.id, j.title, j.company, j.location, j.posted_date, j.url,
                    j.source, j.first_seen_at, j.last_seen_at, j.is_active,
                    j.source_job_id, j.description, j.employment_type, j.salary,
-                   e.job_id
+                   e.job_id, j.semantic_revision
             FROM jobs j
             LEFT JOIN job_embeddings e
               ON e.job_id = j.id AND e.embedding_model = %s AND NOT e.is_stale
@@ -454,6 +461,7 @@ def get_jobs_for_embedding_batch(limit, model=None):
         for row in cursor.fetchall():
             job = Job.from_row(row[1:14])
             job.id = row[0]
+            job.semantic_revision = row[15] if len(row) > 15 else None
             records.append({"job": job, "has_embedding": row[14] is not None})
         return records
     except psycopg2.Error:
@@ -466,7 +474,7 @@ def get_jobs_for_embedding_batch(limit, model=None):
             conn.close()
 
 
-def save_job_embedding(job_id, embedding, embedding_model=None):
+def save_job_embedding(job_id, embedding, embedding_model=None, expected_revision=None):
     if not embedding:
         raise ValueError("embedding must contain at least one value")
     if not all(isinstance(value, (int, float)) for value in embedding):
@@ -478,6 +486,11 @@ def save_job_embedding(job_id, embedding, embedding_model=None):
     try:
         conn = connect_db()
         cursor = conn.cursor()
+        if expected_revision is not None:
+            cursor.execute('SELECT semantic_revision FROM jobs WHERE id=%s FOR UPDATE', (job_id,))
+            row = cursor.fetchone()
+            if not row or row[0] != expected_revision:
+                raise ValueError('Job changed during embedding; discard obsolete result')
         cursor.execute(
             """
             INSERT INTO job_embeddings (

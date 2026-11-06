@@ -31,6 +31,7 @@ def test_lever_pagination_eu_and_full_description():
     job, = Lever(http, page_size=1).fetch(Board('lever', 'acme', 'Acme', 'eu'))
     assert 'Python' in job.description and job.workplace_type == 'hybrid'
     assert job.salary_currency == 'EUR' and job.apply_url.endswith('/apply')
+    assert job.source_metadata['categories']['location'] == 'Berlin'
     assert http.json.call_args.kwargs['params']['skip'] == 1
     assert http.json.call_args.args[0].startswith('https://api.eu.lever.co/')
 
@@ -44,7 +45,7 @@ def test_lever_incomplete_page_and_repeated_ids_fail():
 
 
 def test_ashby_only_listed_compensation_remote_and_date():
-    comp = {'compensationTierSummary': [{'currency': 'USD', 'minValue': 100, 'maxValue': 200}]}
+    comp = {'compensationTierSummary': '$100–200', 'compensationTiers': [{'compensationComponents': [{'currencyCode': 'USD', 'minValue': 100, 'maxValue': 200}]}]}
     http = client({'jobs': [{'id': 'a', 'title': 'Engineer', 'isListed': True,
                             'jobUrl': 'https://jobs.ashbyhq.com/acme/a', 'isRemote': True,
                             'compensation': comp, 'publishedAt': '2026-01-01T12:00:00Z'},
@@ -107,3 +108,15 @@ def test_configuration_requires_explicit_boards(monkeypatch):
     assert configured_boards() == [Board('lever', 'acme', 'Acme', 'eu')]
     monkeypatch.setenv('JOBPULSE_LEVER_BOARDS', '[{"board":"../bad"}]')
     with pytest.raises(ValueError): configured_boards()
+
+
+def test_ashby_no_false_onsite_or_invented_salary():
+    http = client({'jobs':[{'id':'a','title':'Engineer','jobUrl':'https://example.org/a','isListed':True,'isRemote':False}]})
+    job, = Ashby(http).fetch(Board('ashby','acme'))
+    assert job.workplace_type is None and job.salary is None and job.salary_currency is None
+
+
+def test_greenhouse_entity_encoded_html_is_plain_text():
+    http = client({'jobs':[{'id':1,'title':'Engineer','absolute_url':'https://example.org/a','content':'&lt;p&gt;Build APIs&lt;/p&gt;'}]})
+    job, = Greenhouse(http).fetch(Board('greenhouse','acme'))
+    assert job.description == 'Build APIs'

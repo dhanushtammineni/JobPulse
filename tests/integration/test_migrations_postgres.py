@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_clean_upgrade_repeat_and_repository_roundtrip(database):
-    assert upgrade(database) == ['001_jobs.sql', '002_freshness.sql', '003_ai.sql', '004_multisource.sql']
+    assert upgrade(database) == ['001_jobs.sql', '002_freshness.sql', '003_ai.sql', '004_multisource.sql', '005_duplicate_lookup.sql', '006_source_metadata.sql']
     assert upgrade(database) == []
     assert_current(database)
     job = Job('Fixture engineer', 'Test fixture', 'Remote', date(2026, 1, 1),
@@ -78,13 +78,13 @@ def test_adopts_existing_ai_tables_without_losing_artifacts(database, tmp_path):
 def test_failed_migration_rolls_back_all_pending_ddl_and_history(database, tmp_path):
     for path in MIGRATIONS.glob('*.sql'):
         shutil.copy(path, tmp_path)
-    (tmp_path / '005_failure.sql').write_text('CREATE TABLE should_rollback (id INTEGER); SELECT 1/0;')
+    (tmp_path / '007_failure.sql').write_text('CREATE TABLE should_rollback (id INTEGER); SELECT 1/0;')
     with pytest.raises(psycopg2.errors.DivisionByZero):
         upgrade(database, tmp_path)
     with database, database.cursor() as cursor:
         cursor.execute("SELECT to_regclass('jobs'), to_regclass('should_rollback'), to_regclass('schema_migrations')")
         assert cursor.fetchone() == (None, None, None)
-    assert len(upgrade(database)) == 4
+    assert len(upgrade(database)) == 6
 
 
 def test_detects_modified_migration_and_unknown_newer_release(database, tmp_path):
@@ -109,7 +109,7 @@ def test_check_refuses_empty_and_pending_databases_without_ddl(database):
         assert cursor.fetchone()[0] is None
     upgrade(database)
     with database, database.cursor() as cursor:
-        cursor.execute("DELETE FROM schema_migrations WHERE version = '004_multisource.sql'")
+        cursor.execute("DELETE FROM schema_migrations WHERE version = '006_source_metadata.sql'")
     with pytest.raises(MigrationError, match='pending'):
         assert_current(database)
 
@@ -137,7 +137,7 @@ def test_concurrent_migrators_serialize(database):
             connection.close()
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: migrate(), range(2)))
-    assert sorted(map(len, results)) == [0, 4]
+    assert sorted(map(len, results)) == [0, 6]
     assert_current(database)
 
 

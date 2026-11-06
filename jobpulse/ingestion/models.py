@@ -5,7 +5,7 @@ import json
 from urllib.parse import urlsplit
 
 CONTENT_FIELDS = ('title', 'company', 'location', 'description', 'employment_type',
-                  'salary', 'salary_currency', 'workplace_type', 'posted_date')
+                  'salary', 'salary_currency', 'workplace_type', 'posted_date', 'source_metadata')
 SEMANTIC_FIELDS = ('title', 'company', 'location', 'description', 'employment_type',
                    'salary', 'salary_currency', 'workplace_type')
 
@@ -31,7 +31,7 @@ class Job:
                  first_seen_at=None, last_seen_at=None, is_active=True, source_job_id=None,
                  description=None, employment_type=None, salary=None, *, id=None,
                  source_board='', apply_url=None, salary_currency=None, workplace_type=None,
-                 content_hash=None, **extra):
+                 content_hash=None, semantic_revision=None, source_metadata=None, **extra):
         self.title, self.company, self.location = title, company, location
         self.posted_date, self.url, self.source = posted_date, url, source
         self.first_seen_at, self.last_seen_at, self.is_active = first_seen_at, last_seen_at, is_active
@@ -40,6 +40,8 @@ class Job:
         self.id, self.source_board, self.apply_url = id, source_board, apply_url
         self.salary_currency, self.workplace_type = salary_currency, workplace_type
         self.content_hash = content_hash
+        self.semantic_revision = semantic_revision
+        self.source_metadata = source_metadata or {}
 
     @property
     def job_url(self):
@@ -51,7 +53,7 @@ class Job:
         fields = ('id', 'title', 'company', 'location', 'posted_date', 'url', 'source',
                   'source_board', 'source_job_id', 'description', 'employment_type', 'salary',
                   'salary_currency', 'workplace_type', 'apply_url', 'first_seen_at',
-                  'last_seen_at', 'is_active', 'content_hash')
+                  'last_seen_at', 'is_active', 'content_hash', 'source_metadata')
         result = {key: serial(getattr(self, key)) for key in fields}
         result['job_url'] = self.url
         return result

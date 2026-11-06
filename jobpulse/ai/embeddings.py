@@ -65,9 +65,11 @@ def generate_and_save_job_embedding(job, job_id=None, client: AIClient | None = 
     embedding_text = build_job_embedding_text(job)
     embedding, dimensions = create_embedding(embedding_text, client=ai_client)
 
+    revision = _job_value(job, "semantic_revision")
     save_job_embedding(
         resolved_job_id,
         embedding,
         embedding_model=ai_client.embedding_model,
+        **({"expected_revision": revision} if revision is not None else {}),
     )
     return embedding, dimensions

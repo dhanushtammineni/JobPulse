@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 import json
+from html import unescape
 import os
 import re
 from typing import Protocol
@@ -27,7 +28,7 @@ def text(value):
         return None
     if not isinstance(value, str):
         raise SourceError('Expected source text')
-    return BeautifulSoup(value, 'lxml').get_text(' ', strip=True) or None
+    return BeautifulSoup(unescape(value), 'lxml').get_text(' ', strip=True) or None
 
 
 def timestamp(value):
@@ -103,7 +104,7 @@ class Lever:
                                     employment_type=text(categories.get('commitment')),
                                     workplace_type=workplace(item.get('workplaceType')),
                                     salary=json.dumps(salary, sort_keys=True) if salary else text(item.get('salaryDescriptionPlain')),
-                                    salary_currency=salary.get('currency')))
+                                    salary_currency=salary.get('currency'), source_metadata={'categories': categories, 'country': item.get('country')}))
             if len(data) < self.page_size:
                 return jobs
         raise SourceError('Lever pagination limit reached; run is incomplete')
@@ -113,6 +114,18 @@ def workplace(value):
     if value is None: return None
     normalized = str(value).lower().replace('_', '-').replace('onsite', 'on-site')
     return normalized if normalized in {'remote', 'hybrid', 'on-site'} else None
+
+
+def compensation_currencies(value):
+    """Currency can be attached to individual compensation components, not the summary."""
+    result = set()
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {'currency', 'currencyCode'} and isinstance(item, str): result.add(item)
+            elif isinstance(item, (dict,list)): result.update(compensation_currencies(item))
+    elif isinstance(value, list):
+        for item in value: result.update(compensation_currencies(item))
+    return result
 
 
 class Ashby:
@@ -130,8 +143,7 @@ class Ashby:
             compensation = item.get('compensation')
             if compensation is not None and not isinstance(compensation, dict):
                 raise SourceError('Invalid Ashby compensation')
-            currencies = {tier.get('currency') for tier in (compensation or {}).get('compensationTierSummary', [])
-                          if tier.get('currency')}
+            currencies = compensation_currencies(compensation)
             jobs.append(listing(board, item, title=item.get('title'), url=item.get('jobUrl'),
                                 apply_url=item.get('applyUrl'), location=item.get('location'),
                                 description=item.get('descriptionPlain') or item.get('descriptionHtml'),
@@ -139,7 +151,8 @@ class Ashby:
                                 workplace_type=workplace(item.get('workplaceType')) or ('remote' if item.get('isRemote') is True else None),
                                 salary=json.dumps(compensation, sort_keys=True) if compensation else None,
                                 salary_currency=next(iter(currencies)) if len(currencies) == 1 else None,
-                                posted_date=timestamp(item.get('publishedAt'))))
+                                posted_date=timestamp(item.get('publishedAt')),
+                                source_metadata={key: item[key] for key in ('department','team','isRemote','secondaryLocations') if key in item}))
         return jobs
 
 

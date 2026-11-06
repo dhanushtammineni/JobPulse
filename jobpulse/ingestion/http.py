@@ -39,6 +39,8 @@ class HTTPClient:
                                             allow_redirects=False,
                                             headers={'User-Agent': 'JobPulse/1.0 (public job index)'})
             except (requests.Timeout, requests.ConnectionError) as error:
+                if isinstance(error, requests.exceptions.ProxyError) and '403' in str(error):
+                    raise SourceError('Proxy denied source access (HTTP 403)') from error
                 if attempt == self.retries:
                     raise SourceError(type(error).__name__) from error
                 self.sleep(2 ** attempt)

@@ -2,12 +2,20 @@
 from datetime import datetime, timezone
 import json
 from uuid import uuid4
-from psycopg2.extras import RealDictCursor, execute_values
+from psycopg2.extras import RealDictCursor, execute_values, Json
 from jobpulse.database.connections import connect_db
 from jobpulse.ingestion.models import CONTENT_FIELDS, SEMANTIC_FIELDS, content_hash, valid_url
 
 MAX_BOARD_JOBS = 10000
-FIELDS = tuple(dict.fromkeys((*CONTENT_FIELDS, 'url', 'apply_url')))
+FIELDS = tuple(dict.fromkeys((*CONTENT_FIELDS, 'url', 'apply_url', 'source_metadata')))
+
+
+def merge_metadata(previous, incoming):
+    result = dict(previous or {})
+    for key,value in incoming.items():
+        if value is None: continue
+        result[key] = merge_metadata(result.get(key) if isinstance(result.get(key),dict) else {}, value) if isinstance(value,dict) else value
+    return result
 
 
 def begin_run(board):
@@ -78,12 +86,14 @@ def persist_snapshot(board, jobs, run_id, *, complete=True, stale_after_days=7, 
                         raise ValueError('URL belongs to a different stable source identity')
                     incoming = vars(job)
                     merged = {key: incoming.get(key) if incoming.get(key) is not None else (old or {}).get(key) for key in FIELDS}
+                    metadata = merge_metadata((old or {}).get('source_metadata'), job.source_metadata)
+                    merged['source_metadata'] = metadata
                     digest = content_hash(merged)
                     semantic_change = bool(old) and any(merged[k] != old.get(k) for k in SEMANTIC_FIELDS)
                     changed = bool(old) and (any(merged[k] != old.get(k) for k in FIELDS) or not old['is_active'])
                     stats['inserted' if not old else 'updated' if changed else 'unchanged'] += 1
                     if semantic_change: invalidate.append(old['id'])
-                    rows.append(tuple(merged[k] for k in FIELDS) + (
+                    rows.append(tuple(Json(merged[k]) if k == 'source_metadata' else merged[k] for k in FIELDS) + (
                         board.source, board.board, job.source_job_id, digest,
                         (old['semantic_revision'] if old else 0) + int(semantic_change)))
                 # Upsert by identity; no delete/reinsert, so all job foreign keys survive.
