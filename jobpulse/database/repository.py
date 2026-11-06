@@ -35,88 +35,20 @@ def ensure_job_freshness_schema():
 
 
 def insert_jobs(jobs, source="python.org", complete_run=False, stale_after_days=7):
+    """Compatibility wrapper; new ingestion uses one complete board snapshot."""
+    from jobpulse.database.ingestion import begin_run, fail_run, persist_snapshot
+    from jobpulse.ingestion.sources import Board
     if not jobs:
-        logger.warning("skipping empty ingestion run")
         return {"inserted": 0, "updated": 0, "stale": 0}
-
-    conn = None
-    cursor = None
+    board = Board(source, jobs[0].source_board)
+    run_id = begin_run(board)
     try:
-        conn = connect_db()
-        cursor = conn.cursor()
-        urls = list(dict.fromkeys(job.url for job in jobs))
-        cursor.execute("SELECT url FROM jobs WHERE url = ANY(%s)", (urls,))
-        existing_urls = {row[0] for row in cursor.fetchall()}
-        for job in jobs:
-            cursor.execute(
-                f"""
-                INSERT INTO jobs ({JOB_COLUMNS})
-                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP, TRUE, %s, %s, %s, %s)
-                ON CONFLICT (url)
-                DO UPDATE SET
-                    title = EXCLUDED.title,
-                    company = EXCLUDED.company,
-                    location = EXCLUDED.location,
-                    posted_date = EXCLUDED.posted_date,
-                    source = EXCLUDED.source,
-                    source_job_id = EXCLUDED.source_job_id,
-                    description = EXCLUDED.description,
-                    employment_type = EXCLUDED.employment_type,
-                    salary = EXCLUDED.salary,
-                    last_seen_at = CURRENT_TIMESTAMP,
-                    is_active = TRUE
-                """,
-                (
-                    job.title,
-                    job.company,
-                    job.location,
-                    job.posted_date,
-                    job.url,
-                    source,
-                    job.source_job_id,
-                    job.description,
-                    job.employment_type,
-                    job.salary,
-                ),
-            )
-
-        inactive_count = 0
-        if complete_run:
-            cursor.execute(
-                """
-                UPDATE jobs
-                SET is_active = FALSE
-                WHERE source = %s
-                  AND is_active = TRUE
-                  AND last_seen_at < CURRENT_TIMESTAMP - (%s * INTERVAL '1 day')
-                """,
-                (source, stale_after_days),
-            )
-            inactive_count = cursor.rowcount
-
-        conn.commit()
-        logger.info(
-            "upserted %d jobs from %s; marked %d stale jobs inactive",
-            len(jobs),
-            source,
-            inactive_count,
-        )
-        return {
-            "inserted": len(set(urls) - existing_urls),
-            "updated": len(set(urls) & existing_urls),
-            "stale": inactive_count,
-        }
-    except psycopg2.Error:
-        if conn:
-            conn.rollback()
-        logger.exception("failed to upsert jobs")
+        stats = persist_snapshot(board, jobs, run_id, stale_after_days=stale_after_days,
+                                 deactivate=complete_run)
+    except Exception as error:
+        fail_run(run_id, error)
         raise
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
+    return {key: stats[key] for key in ("inserted", "updated", "stale")}
 
 
 def _enrichment_values(enrichment):
@@ -508,7 +440,7 @@ def get_jobs_for_embedding_batch(limit, model=None):
                    e.job_id
             FROM jobs j
             LEFT JOIN job_embeddings e
-              ON e.job_id = j.id AND e.embedding_model = %s
+              ON e.job_id = j.id AND e.embedding_model = %s AND NOT e.is_stale
             WHERE j.is_active = TRUE
               AND j.description IS NOT NULL
               AND BTRIM(j.description) <> ''
@@ -557,6 +489,7 @@ def save_job_embedding(job_id, embedding, embedding_model=None):
                 embedding = EXCLUDED.embedding,
                 embedding_model = EXCLUDED.embedding_model,
                 dimensions = EXCLUDED.dimensions,
+                is_stale = FALSE,
                 updated_at = CURRENT_TIMESTAMP
             """,
             (
@@ -589,7 +522,7 @@ def get_job_embedding(job_id):
             """
             SELECT embedding, embedding_model, dimensions, created_at, updated_at
             FROM job_embeddings
-            WHERE job_id = %s
+            WHERE job_id = %s AND NOT is_stale
             """,
             (job_id,),
         )
@@ -637,7 +570,7 @@ def search_jobs_by_embedding(embedding, top_k=10):
                    job_embeddings.embedding <=> %s::vector AS distance
             FROM jobs
             JOIN job_embeddings ON job_embeddings.job_id = jobs.id
-            WHERE jobs.is_active = TRUE
+            WHERE jobs.is_active = TRUE AND NOT job_embeddings.is_stale
             ORDER BY distance ASC
             LIMIT %s
             """,
@@ -725,11 +658,8 @@ def get_recent_jobs(days):
 
 
 def get_job_by_id(job_id):
-    jobs = _fetch_jobs(
-        f"SELECT {JOB_COLUMNS} FROM jobs WHERE id = %s AND is_active = TRUE",
-        (job_id,),
-    )
-    return jobs[0] if jobs else None
+    from .listings import get_job
+    return get_job(job_id)
 
 
 def get_jobs_by_filter(job_location=None, company=None):

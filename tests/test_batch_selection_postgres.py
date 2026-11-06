@@ -33,7 +33,7 @@ def database(monkeypatch):
                 );
                 CREATE TEMP TABLE job_embeddings (
                     job_id BIGINT PRIMARY KEY, embedding TEXT,
-                    embedding_model TEXT, dimensions INTEGER,
+                    embedding_model TEXT, dimensions INTEGER, is_stale BOOLEAN DEFAULT FALSE,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)

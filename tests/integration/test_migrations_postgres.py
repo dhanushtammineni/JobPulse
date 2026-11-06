@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_clean_upgrade_repeat_and_repository_roundtrip(database):
-    assert upgrade(database) == ['001_jobs.sql', '002_freshness.sql', '003_ai.sql']
+    assert upgrade(database) == ['001_jobs.sql', '002_freshness.sql', '003_ai.sql', '004_multisource.sql']
     assert upgrade(database) == []
     assert_current(database)
     job = Job('Fixture engineer', 'Test fixture', 'Remote', date(2026, 1, 1),
@@ -42,7 +42,7 @@ def test_clean_upgrade_repeat_and_repository_roundtrip(database):
         assert client.get('/health/ready').status_code == 200
         response = client.get('/jobs')
         assert response.status_code == 200
-        assert response.json()[0]['title'] == 'Updated fixture'
+        assert response.json()['items'][0]['title'] == 'Updated fixture'
 
 
 def test_legacy_jobs_preserved_and_partial_null_columns_repaired(database):
@@ -59,9 +59,11 @@ def test_legacy_jobs_preserved_and_partial_null_columns_repaired(database):
     assert_current(database)
 
 
-def test_adopts_existing_ai_tables_without_losing_artifacts(database):
+def test_adopts_existing_ai_tables_without_losing_artifacts(database, tmp_path):
     # Model the previous runtime-DDL schema: tables exist, no migration history.
-    upgrade(database)
+    for path in MIGRATIONS.glob('00[123]_*.sql'):
+        shutil.copy(path, tmp_path)
+    upgrade(database, tmp_path)
     with database, database.cursor() as cursor:
         cursor.execute("INSERT INTO jobs (title, company, location, posted_date, url) VALUES ('Fixture', 'Test', 'Remote', '2026-01-01', 'https://example.test/ai') RETURNING id")
         job_id = cursor.fetchone()[0]
@@ -76,13 +78,13 @@ def test_adopts_existing_ai_tables_without_losing_artifacts(database):
 def test_failed_migration_rolls_back_all_pending_ddl_and_history(database, tmp_path):
     for path in MIGRATIONS.glob('*.sql'):
         shutil.copy(path, tmp_path)
-    (tmp_path / '004_failure.sql').write_text('CREATE TABLE should_rollback (id INTEGER); SELECT 1/0;')
+    (tmp_path / '005_failure.sql').write_text('CREATE TABLE should_rollback (id INTEGER); SELECT 1/0;')
     with pytest.raises(psycopg2.errors.DivisionByZero):
         upgrade(database, tmp_path)
     with database, database.cursor() as cursor:
         cursor.execute("SELECT to_regclass('jobs'), to_regclass('should_rollback'), to_regclass('schema_migrations')")
         assert cursor.fetchone() == (None, None, None)
-    assert len(upgrade(database)) == 3
+    assert len(upgrade(database)) == 4
 
 
 def test_detects_modified_migration_and_unknown_newer_release(database, tmp_path):
@@ -107,7 +109,7 @@ def test_check_refuses_empty_and_pending_databases_without_ddl(database):
         assert cursor.fetchone()[0] is None
     upgrade(database)
     with database, database.cursor() as cursor:
-        cursor.execute("DELETE FROM schema_migrations WHERE version = '003_ai.sql'")
+        cursor.execute("DELETE FROM schema_migrations WHERE version = '004_multisource.sql'")
     with pytest.raises(MigrationError, match='pending'):
         assert_current(database)
 
@@ -135,7 +137,7 @@ def test_concurrent_migrators_serialize(database):
             connection.close()
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: migrate(), range(2)))
-    assert sorted(map(len, results)) == [0, 3]
+    assert sorted(map(len, results)) == [0, 4]
     assert_current(database)
 
 
@@ -156,4 +158,4 @@ def test_api_reads_and_startup_work_in_read_only_transactions(database):
          patch.object(repository, 'connect_db', side_effect=read_only_connection):
         with TestClient(api.app) as client:
             assert client.get('/health/ready').status_code == 200
-            assert client.get('/jobs').status_code == 404
+            assert client.get('/jobs').status_code == 200
